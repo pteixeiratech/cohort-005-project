@@ -49,11 +49,7 @@ import { data, isRouteErrorResponse } from "react-router";
 import { formatDuration, formatPrice } from "~/lib/utils";
 import { renderMarkdown } from "~/lib/markdown.server";
 import { resolveCountry } from "~/lib/country.server";
-import {
-  calculatePppPrice,
-  getCountryTierInfo,
-  getDiscountForCountry,
-} from "~/lib/ppp";
+import { calculatePppPrice, getCountryTierInfo } from "~/lib/ppp";
 import { parseFormData } from "~/lib/validation";
 import { MAX_RATING, MIN_RATING } from "~/lib/ratings";
 import { StarRating, StarRatingInput } from "~/components/star-rating";
@@ -444,10 +440,7 @@ function asDayString(when: Date) {
  * What the learner is offered if they want their money back, or null if this
  * purchase cannot be cancelled.
  */
-function getCancellationOffer(
-  userId: number,
-  course: { id: number; price: number }
-) {
+function getRefundOffer(userId: number, course: { id: number }) {
   const purchase = getPurchaseForCourse(userId, course.id);
 
   if (!purchase) return null;
@@ -486,12 +479,8 @@ function getCancellationOffer(
 
   if (claimedSeat) return null;
 
-  // A purchasing-power price is given back at the price that was paid, not at
-  // the list price of the course.
-  const pppDiscount = getDiscountForCountry(purchase.country);
-  const amount = pppDiscount > 0 ? purchase.amountPaid : course.price;
-
-  return { amount, lastDayInWindow };
+  // A Refund is always the amount the learner paid, never the list price.
+  return { amount: purchase.amountPaid, lastDayInWindow };
 }
 
 const ratingSchema = z.object({
@@ -532,10 +521,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     enrolled = isUserEnrolled(currentUserId, course.id);
 
     if (enrolled) {
-      cancellation = getCancellationOffer(currentUserId, {
-        id: course.id,
-        price: courseWithDetails.price,
-      });
+      cancellation = getRefundOffer(currentUserId, { id: course.id });
 
       progress = calculateProgress(currentUserId, course.id, false);
 
@@ -1014,7 +1000,7 @@ function CancelPurchase({ slug, amount }: { slug: string; amount: number }) {
           className="w-full text-muted-foreground"
           onClick={() => setIsFormOpen(true)}
         >
-          Cancel my purchase
+          Request a refund
         </Button>
       </div>
     );
@@ -1022,10 +1008,10 @@ function CancelPurchase({ slug, amount }: { slug: string; amount: number }) {
 
   return (
     <div className="border-t pt-4">
-      <p className="mb-2 text-sm font-medium">Cancel my purchase</p>
+      <p className="mb-2 text-sm font-medium">Request a refund</p>
       <p className="mb-3 text-xs text-muted-foreground">
-        We will send {formatPrice(amount)} back to the card you paid with, once
-        someone has read your note.
+        Your Refund would be {formatPrice(amount)}, the amount you paid. Someone
+        reviews every Refund request by hand.
       </p>
       <fetcher.Form
         method="post"
@@ -1040,7 +1026,7 @@ function CancelPurchase({ slug, amount }: { slug: string; amount: number }) {
         />
         <div className="flex gap-2">
           <Button type="submit" size="sm" disabled={isSubmitting}>
-            {isSubmitting ? "Sending..." : "Cancel my purchase"}
+            {isSubmitting ? "Sending..." : "Request a refund"}
           </Button>
           <Button
             type="button"

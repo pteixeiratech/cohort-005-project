@@ -16,7 +16,6 @@ import {
 } from "~/db/schema";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { parseFormData, parseParams } from "~/lib/validation";
-import { getDiscountForCountry } from "~/lib/ppp";
 import { formatPrice } from "~/lib/utils";
 
 const REFUND_WINDOW_DAYS = 14;
@@ -30,7 +29,7 @@ const refundActionSchema = z.object({
   reason: z
     .string()
     .trim()
-    .min(10, "Tell us a little more about why you want to cancel.")
+    .min(10, "Tell us a little more about why you want a refund.")
     .max(1000, "Please keep your reason under 1000 characters."),
 });
 
@@ -86,10 +85,11 @@ function lastDayOfWindow(purchasedAtIso: string): string {
 }
 
 /**
- * The confirmation the learner gets in their inbox. There is no mail
- * transport wired up yet, so the built message goes to the server log.
+ * The confirmation the learner gets in their inbox when a Refund request is
+ * received. There is no mail transport wired up yet, so the built message goes
+ * to the server log.
  */
-function buildReversalEmail(input: {
+function buildRefundRequestReceivedEmail(input: {
   learnerName: string;
   learnerEmail: string;
   courseTitle: string;
@@ -97,14 +97,14 @@ function buildReversalEmail(input: {
 }) {
   return {
     to: input.learnerEmail,
-    subject: `Reversal requested — ${input.courseTitle}`,
+    subject: `Refund request received — ${input.courseTitle}`,
     body: [
       `Hi ${input.learnerName},`,
       "",
-      `We have your Reversal request for "${input.courseTitle}".`,
-      `The Reversal is for ${formatPrice(input.amount)}, the amount you paid.`,
+      `We have your Refund request for "${input.courseTitle}".`,
+      `The Refund would be for ${formatPrice(input.amount)}, the amount you paid.`,
       "",
-      "Our team reviews every Reversal by hand. You do not need to do anything else — we will email you again when it is done.",
+      "Our team reviews every Refund request by hand. You do not need to do anything else — we will email you again when it is done.",
       "",
       "— The Cadence team",
     ].join("\n"),
@@ -115,7 +115,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   const currentUserId = await getCurrentUserId(request);
 
   if (!currentUserId) {
-    throw data("You must be logged in to cancel a purchase.", { status: 401 });
+    throw data("You must be logged in to request a refund.", { status: 401 });
   }
 
   const { slug } = parseParams(params, refundParamsSchema);
@@ -158,7 +158,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     .get();
 
   if (claimedSeat) {
-    throw data("A claimed team seat cannot be cancelled.", { status: 403 });
+    throw data("A claimed team seat cannot be refunded.", { status: 403 });
   }
 
   const today = calendarDay(new Date());
@@ -195,15 +195,13 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   if (watchedSeconds >= MAX_WATCHED_HOURS * 60 * 60) {
-    throw data("You have watched too much of this course to cancel it.", {
+    throw data("You have watched too much of this course to request a refund.", {
       status: 403,
     });
   }
 
-  // A purchase made at a purchasing-power price is given back at that price,
-  // not at the list price of the course.
-  const pppDiscount = getDiscountForCountry(purchase.country);
-  const refundableAmount = pppDiscount > 0 ? purchase.amountPaid : course.price;
+  // A Refund is always the amount the learner paid, never the list price.
+  const refundableAmount = purchase.amountPaid;
 
   const formData = await request.formData();
   const parsed = parseFormData(formData, refundActionSchema);
@@ -222,7 +220,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     .returning()
     .get();
 
-  const email = buildReversalEmail({
+  const email = buildRefundRequestReceivedEmail({
     learnerName: learner.name,
     learnerEmail: learner.email,
     courseTitle: course.title,
