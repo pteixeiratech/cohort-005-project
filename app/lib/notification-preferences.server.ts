@@ -1,7 +1,14 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { eq } from "drizzle-orm";
 import * as schema from "~/db/schema";
-import { coupons, courses, purchases, UserRole, users } from "~/db/schema";
+import {
+  coupons,
+  courses,
+  enrollments,
+  purchases,
+  UserRole,
+  users,
+} from "~/db/schema";
 import {
   DEFAULT_FEED_PREFERENCES,
   NOTIFICATION_CATEGORIES,
@@ -140,6 +147,11 @@ export function visibleNotificationCategories(
     .where(eq(courses.instructorId, userId))
     .get();
   const isPlatformAdmin = user.role === UserRole.Admin;
+  const hasEnrollment = !!db
+    .select({ id: enrollments.id })
+    .from(enrollments)
+    .where(eq(enrollments.userId, userId))
+    .get();
 
   const shown: Record<NotificationCategory, boolean> = {
     refundRequestUpdates: hasPurchase,
@@ -147,6 +159,7 @@ export function visibleNotificationCategories(
     discussionQuestions: ownsCourse,
     openRefundRequests: isPlatformAdmin,
     discussionReplies: true,
+    newLessons: hasEnrollment,
   };
   return NOTIFICATION_CATEGORIES.filter((category) => shown[category]);
 }

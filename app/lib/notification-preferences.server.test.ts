@@ -61,6 +61,7 @@ describe("syncing a user", () => {
       discussionQuestions: { feed: true },
       openRefundRequests: { feed: true },
       discussionReplies: { feed: true },
+      newLessons: { feed: true },
     });
   });
 
@@ -72,6 +73,7 @@ describe("syncing a user", () => {
     expect(notifications.preferences.get(base.user.id)).toMatchObject({
       seatClaims: { feed: true },
       discussionReplies: { feed: true },
+      newLessons: { feed: true },
     });
   });
 
@@ -150,6 +152,7 @@ describe("changing a feed preference", () => {
       discussionQuestions: { feed: true },
       openRefundRequests: { feed: true },
       discussionReplies: { feed: true },
+      newLessons: { feed: true },
     });
   });
 
@@ -164,6 +167,7 @@ describe("changing a feed preference", () => {
       discussionQuestions: { feed: true },
       openRefundRequests: { feed: true },
       discussionReplies: { feed: true },
+      newLessons: { feed: true },
     });
   });
 
@@ -178,6 +182,7 @@ describe("changing a feed preference", () => {
       discussionQuestions: true,
       openRefundRequests: true,
       discussionReplies: false,
+      newLessons: true,
     });
   });
 });
@@ -263,6 +268,25 @@ describe("which switches a person sees", () => {
       "discussionQuestions",
       "openRefundRequests",
       "discussionReplies",
+    ]);
+  });
+
+  it("shows New lessons only to someone with an Enrollment", () => {
+    expect(visibleNotificationCategories(db, base.user.id)).not.toContain(
+      "newLessons"
+    );
+
+    db.insert(schema.enrollments)
+      .values({
+        userId: base.user.id,
+        courseId: base.course.id,
+        enrolledAt: "2026-01-01",
+      })
+      .run();
+
+    expect(visibleNotificationCategories(db, base.user.id)).toEqual([
+      "discussionReplies",
+      "newLessons",
     ]);
   });
 

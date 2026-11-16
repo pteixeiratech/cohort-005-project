@@ -51,6 +51,7 @@ const WORKFLOWS: Record<
     key: "refund-declined",
     category: "refundRequestUpdates",
   },
+  "lesson-created": { key: "lesson-created", category: "newLessons" },
 };
 
 /** Knock preference category key per Cadence Notification category. */
@@ -60,6 +61,7 @@ const CATEGORY_KEYS: Record<NotificationCategory, string> = {
   discussionQuestions: "discussion-questions",
   openRefundRequests: "open-refund-requests",
   discussionReplies: "discussion-replies",
+  newLessons: "new-lessons",
 };
 
 /** Each Knock workflow key with its category key, for pushing workflows. */
