@@ -7,6 +7,8 @@ import { join } from "node:path";
 // instead, so it can be read without sending anything.
 
 export type Email = {
+  // Defaults to the Cadence sender when not given.
+  from?: string;
   to: string;
   subject: string;
   body: string;
@@ -29,7 +31,7 @@ export function postmarkTransport(serverToken: string): MailTransport {
           "X-Postmark-Server-Token": serverToken,
         },
         body: JSON.stringify({
-          From: FROM_ADDRESS,
+          From: email.from ?? FROM_ADDRESS,
           To: email.to,
           Subject: email.subject,
           TextBody: email.body,
@@ -53,7 +55,7 @@ export function outboxTransport(directory: string): MailTransport {
       const file = join(directory, `${Date.now()}-${email.to}.json`);
       writeFileSync(
         file,
-        JSON.stringify({ from: FROM_ADDRESS, ...email }, null, 2)
+        JSON.stringify({ ...email, from: email.from ?? FROM_ADDRESS }, null, 2)
       );
     },
   };
@@ -69,4 +71,39 @@ export async function sendEmail(
   transport: MailTransport = defaultTransport()
 ): Promise<void> {
   await transport.send(email);
+}
+
+// ─── Notification emails ───
+// Emails for Notifications (Issued and Failed Refunds) come from their own
+// sender and link to the app at its own base URL. Neither is hardcoded: both
+// come from configuration, and a missing value is an error rather than a guess.
+
+export type NotificationEmailConfig = {
+  /** The From address, e.g. `Name <address@domain>`. */
+  from: string;
+  /** The origin links in the emails are built on, e.g. `https://app.example`. */
+  appUrl: string;
+};
+
+/**
+ * Reads the Notification email sender and link base from `env`, which is
+ * `process.env` in the running app. NOTIFICATION_EMAIL_FROM and APP_URL must
+ * both be set.
+ */
+export function notificationEmailConfig(
+  env: Record<string, string | undefined>
+): NotificationEmailConfig {
+  const from = env.NOTIFICATION_EMAIL_FROM;
+  if (!from) {
+    throw new Error(
+      "NOTIFICATION_EMAIL_FROM must be set to send Notification emails."
+    );
+  }
+
+  const appUrl = env.APP_URL;
+  if (!appUrl) {
+    throw new Error("APP_URL must be set to link from Notification emails.");
+  }
+
+  return { from, appUrl };
 }
