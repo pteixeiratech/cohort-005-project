@@ -35,9 +35,12 @@ export enum RefundStatus {
   Open = "open",
   Approved = "approved",
   Declined = "declined",
-  // The money has been confirmed as sent back to the buyer.
+}
+
+// What happened to the money of an approved Refund Request. Null until the
+// money has been sent or has failed to send; the Refund Request stays approved.
+export enum RefundOutcome {
   Issued = "issued",
-  // The money could not be sent. The decision itself has not changed.
   Failed = "failed",
 }
 
@@ -248,6 +251,9 @@ export const refunds = sqliteTable(
     reason: text("reason").notNull(),
     // Null until someone approves — a declined request refunds nothing.
     amountRefunded: integer("amount_refunded"),
+    // Null until the Refund is Issued or Failed. Only set on an approved Refund
+    // Request.
+    refundOutcome: text("refund_outcome").$type<RefundOutcome>(),
     requestedAt: text("requested_at")
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

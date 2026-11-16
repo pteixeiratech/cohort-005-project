@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
-import { LessonProgressStatus, RefundStatus, UserRole } from "~/db/schema";
+import {
+  LessonProgressStatus,
+  RefundOutcome,
+  RefundStatus,
+  UserRole,
+} from "~/db/schema";
 import {
   approveRefundRequest,
   checkRefundRequest,
@@ -244,39 +249,39 @@ describe("raising a Refund Request", () => {
   });
 });
 
-describe("the Refund states", () => {
-  it("records a Refund as Issued or Failed alongside the existing states", () => {
+describe("the Refund outcome", () => {
+  it("records an approved Refund as Issued or Failed, leaving the Refund Request approved", () => {
     const purchase = buyForSelf(base.user.id);
 
-    const statuses = [
-      RefundStatus.Open,
-      RefundStatus.Approved,
-      RefundStatus.Declined,
-      RefundStatus.Issued,
-      RefundStatus.Failed,
-    ];
-    const rows = statuses.map((status) =>
+    const [issued, failed, untouched] = [
+      RefundOutcome.Issued,
+      RefundOutcome.Failed,
+      null,
+    ].map((refundOutcome) =>
       db
         .insert(schema.refunds)
-        .values({ purchaseId: purchase.id, status, reason: "Test" })
+        .values({
+          purchaseId: purchase.id,
+          status: RefundStatus.Approved,
+          reason: "Test",
+          refundOutcome,
+        })
         .returning()
         .get()
     );
 
-    expect(rows.map((row) => row.status)).toEqual([
-      "open",
-      "approved",
-      "declined",
-      "issued",
-      "failed",
-    ]);
-    expect(
-      db
-        .select()
-        .from(schema.refunds)
-        .where(eq(schema.refunds.id, rows[4].id))
-        .get()
-    ).toMatchObject({ status: RefundStatus.Failed });
+    expect(issued).toMatchObject({
+      status: RefundStatus.Approved,
+      refundOutcome: "issued",
+    });
+    expect(failed).toMatchObject({
+      status: RefundStatus.Approved,
+      refundOutcome: "failed",
+    });
+    expect(untouched).toMatchObject({
+      status: RefundStatus.Approved,
+      refundOutcome: null,
+    });
   });
 });
 
