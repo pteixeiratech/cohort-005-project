@@ -271,6 +271,25 @@ describe("which switches a person sees", () => {
     ]);
   });
 
+  it("shows New lessons only to someone with an Enrollment", () => {
+    expect(visibleNotificationCategories(db, base.user.id)).not.toContain(
+      "newLessons"
+    );
+
+    db.insert(schema.enrollments)
+      .values({
+        userId: base.user.id,
+        courseId: base.course.id,
+        enrolledAt: "2026-01-01",
+      })
+      .run();
+
+    expect(visibleNotificationCategories(db, base.user.id)).toEqual([
+      "discussionReplies",
+      "newLessons",
+    ]);
+  });
+
   it("adds Open Refund Requests for a Platform Admin", () => {
     const admin = addUser("Alex", schema.UserRole.Admin);
 

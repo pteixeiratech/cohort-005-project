@@ -36,12 +36,12 @@ export async function createLesson(
   title: string,
   notifications: Notifications
 ) {
-  const position =
-    db
-      .select({ max: sql<number>`coalesce(max(${lessons.position}), 0)` })
-      .from(lessons)
-      .where(eq(lessons.moduleId, moduleId))
-      .get()!.max + 1;
+  const lastPosition = db
+    .select({ max: sql<number>`coalesce(max(${lessons.position}), 0)` })
+    .from(lessons)
+    .where(eq(lessons.moduleId, moduleId))
+    .get();
+  const position = (lastPosition?.max ?? 0) + 1;
 
   const lesson = db
     .insert(lessons)
@@ -62,7 +62,7 @@ export async function createLesson(
   if (!course) return lesson;
 
   const recipients = db
-    .select(NOTIFICATION_PERSON_COLUMNS)
+    .selectDistinct(NOTIFICATION_PERSON_COLUMNS)
     .from(enrollments)
     .innerJoin(users, eq(users.id, enrollments.userId))
     .where(

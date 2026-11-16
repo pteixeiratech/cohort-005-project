@@ -74,6 +74,17 @@ describe("creating a lesson: lesson-created Notifications", () => {
     expect(notifications.feedOf(grace.id)).toHaveLength(1);
   });
 
+  it("sends a Student with two Enrollment rows on the course one Notification", async () => {
+    const ada = addStudent("ada@example.com");
+    enrol(ada.id);
+    enrol(ada.id);
+
+    await createLesson(db, moduleId, "Closures", notifications);
+
+    expect(notifications.feedOf(ada.id)).toHaveLength(1);
+    expect(notifications.sent).toHaveLength(1);
+  });
+
   it("sends nothing to a Student whose Enrollment has lapsed", async () => {
     const lapsed = addStudent("lapsed@example.com");
     // Lapsed: progress on the course, but no Enrollment.
