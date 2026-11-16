@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "~/db/schema";
@@ -19,8 +19,9 @@ import {
   UserRole,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
-import type { NotificationEmailConfig } from "~/lib/mailer.server";
+import type { Email, NotificationEmailConfig } from "~/lib/mailer.server";
 import {
+  findNotificationPerson,
   sendSafely,
   toNotificationPerson,
   type Notifications,
@@ -356,14 +357,6 @@ export function getRefundOffer(
   };
 }
 
-export type Email = {
-  // Set for Notification emails; the mailer default is used when absent.
-  from?: string;
-  to: string;
-  subject: string;
-  body: string;
-};
-
 export type RaiseResult =
   | { ok: true; refundRequestId: number; kind: PurchaseKind; email: Email }
   | Failure;
@@ -455,6 +448,7 @@ function selectRefundRequests(db: Queryable) {
     .select({
       id: refunds.id,
       status: refunds.status,
+      refundOutcome: refunds.refundOutcome,
       reason: refunds.reason,
       decisionNote: refunds.decisionNote,
       requestedAt: refunds.requestedAt,
@@ -476,6 +470,8 @@ function selectRefundRequests(db: Queryable) {
 export type RefundRequestForReview = {
   id: number;
   status: RefundStatus;
+  /** What happened to an approved Refund's money. Null until recorded. */
+  refundOutcome: RefundOutcome | null;
   reason: string;
   decisionNote: string | null;
   requestedAt: string;
@@ -521,6 +517,7 @@ export function listRefundRequestsForReview(
     return {
       id: row.id,
       status: row.status,
+      refundOutcome: row.refundOutcome,
       reason: row.reason,
       decisionNote: row.decisionNote,
       requestedAt: row.requestedAt,
@@ -902,9 +899,9 @@ async function notifyDecision(
 /**
  * Records that an approved Refund's money has been sent back, and tells the
  * buyer. A Refund that Failed earlier can be Issued on a retry; a Refund that
- * is already Issued cannot. Nothing calls this yet: the Refund is marked Issued
- * by a route not built here. A failed Notification never fails this, or undoes
- * the outcome.
+ * is already Issued cannot. A Platform Admin records it on the Refund Requests
+ * page, once the money has actually been sent. A failed Notification never fails
+ * this, or undoes the outcome.
  *
  * Returns the email the buyer gets. The caller sends it: the email transport is
  * injected by the caller, as for the other refund emails.
@@ -975,18 +972,14 @@ async function notifyIssued(
     .get();
   if (!refundRequest) return [];
 
-  const purchase = getPurchase(db, refundRequest.purchaseId);
-  if (!purchase) return [];
+  const found = getPurchaseAndCourse(db, refundRequest.purchaseId);
+  if (!found) return [];
+  const { purchase, course } = found;
   const buyer = db.select().from(users).where(eq(users.id, purchase.userId)).get();
-  const course = db
-    .select()
-    .from(courses)
-    .where(eq(courses.id, purchase.courseId))
-    .get();
-  if (!buyer || !course) return [];
+  if (!buyer) return [];
 
   const purchaseKind = kindOf(getSeats(db, purchase.id));
-  const path = purchaseKind === "team_licence" ? "/team" : "/settings";
+  const linkPath = purchaseKind === "team_licence" ? "/team" : "/settings";
   await sendSafely(
     notifications,
     {
@@ -997,7 +990,7 @@ async function notifyIssued(
         courseTitle: course.title,
         purchaseKind,
         amount: formatPrice(purchase.amountPaid),
-        url: path,
+        url: linkPath,
       },
     },
     `refund-issued:${refundRequestId}`
@@ -1012,10 +1005,25 @@ async function notifyIssued(
         course.title,
         `The refund for ${course.title} has been issued and sent back to your original payment method.`,
         "View your refund",
-        `${email.appUrl}${path}`
+        `${email.appUrl}${linkPath}`
       ),
     },
   ];
+}
+
+/** The Purchase a Refund Request is for, and the course it bought. */
+function getPurchaseAndCourse(db: Queryable, purchaseId: number) {
+  const purchase = getPurchase(db, purchaseId);
+  if (!purchase) return undefined;
+
+  const course = db
+    .select()
+    .from(courses)
+    .where(eq(courses.id, purchase.courseId))
+    .get();
+  if (!course) return undefined;
+
+  return { purchase, course };
 }
 
 // ─── Marking a Refund Failed ───
@@ -1023,14 +1031,17 @@ async function notifyIssued(
 /**
  * Records that sending an approved Refund's money back failed. The Refund
  * Request stays approved, so it can be retried; a retry that fails again is
- * recorded and notified again. Once a Refund is Issued it cannot fail. Nothing
- * calls this yet. A failed Notification never fails this, or undoes the outcome.
+ * recorded and notified again. Once a Refund is Issued it cannot fail. A failed
+ * Notification never fails this, or undoes the outcome.
  *
- * Returns one email per Platform Admin. The caller sends them.
+ * The Platform Admin who recorded the failure is not told about it: a
+ * Notification is never sent to the person who performed the action it reports.
+ * Returns one email per other Platform Admin. The caller sends them.
  */
 export async function markRefundFailed(
   db: Db,
   refundRequestId: number,
+  platformAdminId: number,
   now: Date,
   notifications: Notifications,
   email: NotificationEmailConfig
@@ -1074,18 +1085,35 @@ export async function markRefundFailed(
   });
 
   if (!result.ok) return result;
-  const emails = await notifyFailed(db, refundRequestId, now, notifications, email);
+  const emails = await notifyFailed(
+    db,
+    refundRequestId,
+    platformAdminId,
+    now,
+    notifications,
+    email
+  );
   return { ok: true, emails };
 }
 
 /**
- * Tells every Platform Admin that a Refund failed to send, on the feed, and
- * returns one email to each. The key includes the time of this failure and the
- * admin, so a repeat failure is not dropped.
+ * Where a Failed Refund's Notification and email link: the Refund Requests page,
+ * on the Approved filter, with this Refund Request highlighted.
+ */
+function failedRefundPath(refundRequestId: number) {
+  return `/admin/refunds?status=${RefundStatus.Approved}&refund=${refundRequestId}`;
+}
+
+/**
+ * Tells every Platform Admin except the one who recorded the failure that a
+ * Refund failed to send, on the feed, and returns one email to each of them.
+ * The key includes the time of this failure and the admin, so a repeat failure
+ * is not dropped.
  */
 async function notifyFailed(
   db: Db,
   refundRequestId: number,
+  platformAdminId: number,
   now: Date,
   notifications: Notifications,
   email: NotificationEmailConfig
@@ -1097,32 +1125,31 @@ async function notifyFailed(
     .get();
   if (!refundRequest) return [];
 
-  const purchase = getPurchase(db, refundRequest.purchaseId);
-  if (!purchase) return [];
-  const course = db
-    .select()
-    .from(courses)
-    .where(eq(courses.id, purchase.courseId))
-    .get();
-  if (!course) return [];
+  const found = getPurchaseAndCourse(db, refundRequest.purchaseId);
+  if (!found) return [];
+  const { purchase, course } = found;
 
-  const platformAdmins = db
+  const actor = findNotificationPerson(db, platformAdminId);
+  const linkPath = failedRefundPath(refundRequestId);
+  const otherPlatformAdmins = db
     .select()
     .from(users)
-    .where(eq(users.role, UserRole.Admin))
+    .where(and(eq(users.role, UserRole.Admin), ne(users.id, platformAdminId)))
     .all();
+
   const emails: Email[] = [];
-  for (const platformAdmin of platformAdmins) {
+  for (const platformAdmin of otherPlatformAdmins) {
     await sendSafely(
       notifications,
       {
         kind: "refund-failed",
         recipient: toNotificationPerson(platformAdmin),
+        actor,
         data: {
           refundRequestId,
           courseTitle: course.title,
           amount: formatPrice(purchase.amountPaid),
-          url: "/admin/refunds",
+          url: linkPath,
         },
       },
       `refund-failed:${refundRequestId}:${now.toISOString()}:${platformAdmin.id}`
@@ -1136,7 +1163,7 @@ async function notifyFailed(
         course.title,
         `The refund for ${course.title} failed to send. Each failure is sent to you separately.`,
         "Follow it up",
-        `${email.appUrl}/admin/refunds`
+        `${email.appUrl}${linkPath}`
       ),
     });
   }
