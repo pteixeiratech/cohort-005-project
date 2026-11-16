@@ -56,6 +56,13 @@ export const notificationDataSchemas = {
     decisionNote: z.string(),
     url: z.string(),
   }),
+  "lesson-created": z.object({
+    courseId: z.number(),
+    courseTitle: z.string(),
+    lessonId: z.number(),
+    lessonTitle: z.string(),
+    url: z.string(),
+  }),
 };
 
 export type NotificationKind = keyof typeof notificationDataSchemas;

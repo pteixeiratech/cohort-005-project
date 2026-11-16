@@ -10,6 +10,7 @@ import {
 import { Link, useNavigate } from "react-router";
 import { z } from "zod";
 import {
+  BookOpen,
   Bell,
   Check,
   MessageSquare,
@@ -405,6 +406,13 @@ function describeNotification(notification: FeedNotification): {
         title: `Your Refund Request for ${notification.data.courseTitle} was declined`,
         body: `“${notification.data.decisionNote}” You keep your ${purchaseLabel(notification.data.purchaseKind)}, and you can raise a new Refund Request.`,
         icon: <Receipt />,
+        url: notification.data.url,
+      };
+    case "lesson-created":
+      return {
+        title: `New lesson on ${notification.data.courseTitle}`,
+        body: notification.data.lessonTitle,
+        icon: <BookOpen />,
         url: notification.data.url,
       };
   }

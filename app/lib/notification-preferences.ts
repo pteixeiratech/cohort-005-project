@@ -9,6 +9,7 @@ export const NOTIFICATION_CATEGORIES = [
   "discussionQuestions",
   "openRefundRequests",
   "discussionReplies",
+  "newLessons",
 ] as const;
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
@@ -35,6 +36,7 @@ export const DEFAULT_FEED_PREFERENCES: FeedPreferences = {
   discussionQuestions: true,
   openRefundRequests: true,
   discussionReplies: true,
+  newLessons: true,
 };
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<
@@ -61,5 +63,9 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<
   discussionReplies: {
     label: "Discussion Replies",
     description: "When someone replies to your Discussion Question.",
+  },
+  newLessons: {
+    label: "New lessons",
+    description: "When a new lesson is added to a course you are taking.",
   },
 };
