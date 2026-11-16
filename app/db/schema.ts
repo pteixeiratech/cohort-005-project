@@ -35,6 +35,10 @@ export enum RefundStatus {
   Open = "open",
   Approved = "approved",
   Declined = "declined",
+  // The money has been confirmed as sent back to the buyer.
+  Issued = "issued",
+  // The money could not be sent. The decision itself has not changed.
+  Failed = "failed",
 }
 
 export enum TeamMemberRole {

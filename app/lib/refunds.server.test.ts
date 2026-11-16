@@ -244,6 +244,42 @@ describe("raising a Refund Request", () => {
   });
 });
 
+describe("the Refund states", () => {
+  it("records a Refund as Issued or Failed alongside the existing states", () => {
+    const purchase = buyForSelf(base.user.id);
+
+    const statuses = [
+      RefundStatus.Open,
+      RefundStatus.Approved,
+      RefundStatus.Declined,
+      RefundStatus.Issued,
+      RefundStatus.Failed,
+    ];
+    const rows = statuses.map((status) =>
+      db
+        .insert(schema.refunds)
+        .values({ purchaseId: purchase.id, status, reason: "Test" })
+        .returning()
+        .get()
+    );
+
+    expect(rows.map((row) => row.status)).toEqual([
+      "open",
+      "approved",
+      "declined",
+      "issued",
+      "failed",
+    ]);
+    expect(
+      db
+        .select()
+        .from(schema.refunds)
+        .where(eq(schema.refunds.id, rows[4].id))
+        .get()
+    ).toMatchObject({ status: RefundStatus.Failed });
+  });
+});
+
 describe("the refund offer on the course page", () => {
   it("offers the newest Individual Purchase, not a newer Team Licence", () => {
     const individual = buyForSelf(base.user.id, 3);

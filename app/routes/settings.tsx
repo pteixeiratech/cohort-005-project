@@ -398,6 +398,15 @@ const REFUND_STATUS_BADGES: Record<
     label: "Declined",
     className: "bg-muted text-muted-foreground",
   },
+  [RefundStatus.Issued]: {
+    label: "Issued",
+    className:
+      "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  },
+  [RefundStatus.Failed]: {
+    label: "Failed",
+    className: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  },
 };
 
 function RefundStatusBadge({ status }: { status: RefundStatus }) {
