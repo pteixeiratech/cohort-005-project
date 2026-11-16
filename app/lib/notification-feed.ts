@@ -25,13 +25,6 @@ export const notificationDataSchemas = {
     seatsLeft: z.number(),
     url: z.string(),
   }),
-  // The new Enrollment Notification to the course's Instructor (opt-in).
-  "new-enrollment": z.object({
-    enrollmentId: z.number(),
-    courseId: z.number(),
-    courseTitle: z.string(),
-    url: z.string(),
-  }),
   "discussion-question": z.object({
     commentId: z.number(),
     lessonId: z.number(),
@@ -39,18 +32,12 @@ export const notificationDataSchemas = {
     snippet: z.string(),
     url: z.string(),
   }),
-  // Refund Request confirmation: from Cadence, nowhere to click.
-  "refund-requested": z.object({
-    refundRequestId: z.number(),
-    courseTitle: z.string(),
-    amount: z.string(),
-  }),
+  // No buyer name or reason: Notifications never show Student names or
+  // Refund Request reason text.
   "refund-request-open": z.object({
     refundRequestId: z.number(),
-    buyerName: z.string(),
     courseTitle: z.string(),
     amount: z.string(),
-    reason: z.string(),
     url: z.string(),
   }),
   "refund-approved": z.object({

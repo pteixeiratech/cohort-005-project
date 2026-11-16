@@ -12,7 +12,6 @@ import { z } from "zod";
 import {
   Bell,
   Check,
-  GraduationCap,
   MessageSquare,
   Receipt,
   Settings,
@@ -381,24 +380,10 @@ function describeNotification(notification: FeedNotification): {
         url: notification.data.url,
       };
     }
-    case "new-enrollment":
-      return {
-        title: `${actorName} enrolled in ${notification.data.courseTitle}`,
-        body: "New Enrollment",
-        icon: <GraduationCap />,
-        url: notification.data.url,
-      };
-    case "refund-requested":
-      return {
-        title: "We're reviewing your Refund Request",
-        body: `${notification.data.amount} for ${notification.data.courseTitle}`,
-        icon: <Receipt />,
-        url: undefined,
-      };
     case "refund-request-open":
       return {
-        title: `${notification.data.buyerName} raised a ${notification.data.amount} Refund Request on ${notification.data.courseTitle}`,
-        body: `“${notification.data.reason}”`,
+        title: `A ${notification.data.amount} Refund Request was raised on ${notification.data.courseTitle}`,
+        body: "Waiting for a decision",
         icon: <Receipt />,
         url: notification.data.url,
       };

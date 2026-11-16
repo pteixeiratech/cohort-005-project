@@ -523,21 +523,6 @@ describe("the Refund Request Notifications", () => {
     return notifications.sent.filter((n) => n.kind === kind);
   }
 
-  it("confirms the Refund Request to the buyer", async () => {
-    const purchase = buyForSelf(base.user.id, 3, 7900);
-
-    const id = await raise(purchase.id, base.user.id);
-
-    expect(sentOf("refund-requested")).toEqual([
-      {
-        kind: "refund-requested",
-        idempotencyKey: `refund-requested:${id}`,
-        recipient: { id: base.user.id, ...testUser },
-        data: { refundRequestId: id, courseTitle: "Test Course", amount: "$79.00" },
-      },
-    ]);
-  });
-
   it("tells every Platform Admin, and nobody else, about the Open Refund Request", async () => {
     const sam = db
       .insert(schema.users)
@@ -564,10 +549,8 @@ describe("the Refund Request Notifications", () => {
       actor: { id: base.user.id, ...testUser },
       data: {
         refundRequestId: id,
-        buyerName: "Test User",
         courseTitle: "Test Course",
         amount: "$79.00",
-        reason: "It was not what I expected.",
         url: "/admin/refunds",
       },
     });
@@ -665,7 +648,7 @@ describe("the Refund Request Notifications", () => {
 
     expect(raised.email.to).toBe("test@example.com");
     expect(declined).toMatchObject({ ok: true, email: { to: "test@example.com" } });
-    for (const key of ["refund-requested:", "refund-request-open:", "refund-declined:"]) {
+    for (const key of ["refund-request-open:", "refund-declined:"]) {
       expect(error).toHaveBeenCalledWith(expect.stringContaining(key), "Knock is down");
     }
     error.mockRestore();

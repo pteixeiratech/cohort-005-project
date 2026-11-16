@@ -39,7 +39,6 @@ import { resolveCountry } from "~/lib/country.server";
 import { calculatePppPrice, getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { parseFormData, parseParams } from "~/lib/validation";
 import { enrollStudent, isEnrolled } from "~/lib/enrollments.server";
-import { defaultNotifications } from "~/lib/notifications.server";
 
 function getCourseBySlug(slug: string) {
   return db.select().from(courses).where(eq(courses.slug, slug)).get();
@@ -321,13 +320,7 @@ export async function action({ params, request }: Route.ActionArgs) {
       throw redirect(`/courses/${slug}`);
     }
     createPurchase(currentUserId, course.id, pppPrice, country);
-    const enrolled = await enrollStudent(
-      db,
-      currentUserId,
-      course.id,
-      new Date(),
-      await defaultNotifications()
-    );
+    const enrolled = enrollStudent(db, currentUserId, course.id, new Date());
     if (!enrolled.ok) {
       throw data(enrolled.error, { status: 409 });
     }

@@ -144,7 +144,6 @@ export function visibleNotificationCategories(
   const shown: Record<NotificationCategory, boolean> = {
     refundRequestUpdates: hasPurchase,
     seatClaims: isTeamAdmin,
-    enrollments: ownsCourse,
     discussionQuestions: ownsCourse,
     openRefundRequests: isPlatformAdmin,
     discussionReplies: true,

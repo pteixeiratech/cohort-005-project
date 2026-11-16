@@ -2,11 +2,7 @@ import { and, count, eq, isNull } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
 import { coupons, courses, enrollments, purchases } from "~/db/schema";
-import {
-  enrollStudentInTransaction,
-  isEnrolled,
-  notifyInstructorOfEnrollment,
-} from "~/lib/enrollments.server";
+import { enrollStudentInTransaction, isEnrolled } from "~/lib/enrollments.server";
 import { getSeatAvailability } from "~/lib/refunds.server";
 import {
   sendSafely,
@@ -57,7 +53,6 @@ export async function claimSeat(
   );
   if (result.ok) {
     await notifyTeamAdmin(db, result.seat, notifications);
-    await notifyInstructorOfEnrollment(db, result.enrollment, notifications);
   }
   return result;
 }

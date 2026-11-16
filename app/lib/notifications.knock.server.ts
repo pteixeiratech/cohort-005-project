@@ -39,11 +39,6 @@ const WORKFLOWS: Record<
     category: "discussionQuestions",
   },
   "seat-claimed": { key: "seat-claimed", category: "seatClaims" },
-  "new-enrollment": { key: "new-enrollment", category: "enrollments" },
-  "refund-requested": {
-    key: "refund-requested",
-    category: "refundRequestUpdates",
-  },
   "refund-request-open": {
     key: "refund-request-open",
     category: "openRefundRequests",
@@ -62,7 +57,6 @@ const WORKFLOWS: Record<
 const CATEGORY_KEYS: Record<NotificationCategory, string> = {
   refundRequestUpdates: "refund-request-updates",
   seatClaims: "seat-claims",
-  enrollments: "enrollments",
   discussionQuestions: "discussion-questions",
   openRefundRequests: "open-refund-requests",
   discussionReplies: "discussion-replies",

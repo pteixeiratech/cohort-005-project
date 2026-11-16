@@ -2,11 +2,6 @@ import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
 import { and, eq } from "drizzle-orm";
 import { courses, enrollments } from "~/db/schema";
-import {
-  sendSafely,
-  findNotificationPerson,
-  type Notifications,
-} from "~/lib/notifications.server";
 
 // ─── Enrollments ───
 // Giving a Student an Enrollment on a course, whether it came from an
@@ -40,29 +35,19 @@ export function isEnrolled(
 export type EnrollResult =
   { ok: true; enrollment: Enrollment } | { ok: false; error: string };
 
-/**
- * Gives the Student an Enrollment, then sends the new Enrollment Notification
- * to the course's Instructor. A Notification failure is logged and never fails
- * the Enrollment.
- */
-export async function enrollStudent(
+/** Gives the Student an Enrollment on a course. No Notification is sent. */
+export function enrollStudent(
   db: Db,
   studentId: number,
   courseId: number,
-  now: Date,
-  notifications: Notifications
-): Promise<EnrollResult> {
-  const result = enrollStudentInTransaction(db, studentId, courseId, now);
-  if (result.ok) {
-    await notifyInstructorOfEnrollment(db, result.enrollment, notifications);
-  }
-  return result;
+  now: Date
+): EnrollResult {
+  return enrollStudentInTransaction(db, studentId, courseId, now);
 }
 
 /**
  * The write half of `enrollStudent`, for callers that enrol inside their own
- * transaction. Once that transaction commits, they must call
- * `notifyInstructorOfEnrollment` with the new Enrollment.
+ * transaction.
  */
 export function enrollStudentInTransaction(
   db: Queryable,
@@ -90,40 +75,4 @@ export function enrollStudentInTransaction(
     .get();
 
   return { ok: true, enrollment };
-}
-
-/**
- * Sends the new Enrollment Notification to the course's Instructor. Their
- * Enrollments preference is off until they opt in; Knock applies it.
- */
-export async function notifyInstructorOfEnrollment(
-  db: Db,
-  enrollment: Enrollment,
-  notifications: Notifications
-) {
-  const course = db
-    .select({ title: courses.title, instructorId: courses.instructorId })
-    .from(courses)
-    .where(eq(courses.id, enrollment.courseId))
-    .get();
-  if (!course) return;
-  const recipient = findNotificationPerson(db, course.instructorId);
-  const actor = findNotificationPerson(db, enrollment.userId);
-  if (!recipient || !actor) return;
-
-  await sendSafely(
-    notifications,
-    {
-      kind: "new-enrollment",
-      recipient,
-      actor,
-      data: {
-        enrollmentId: enrollment.id,
-        courseId: enrollment.courseId,
-        courseTitle: course.title,
-        url: `/instructor/${enrollment.courseId}/students`,
-      },
-    },
-    `enrollment:${enrollment.id}`
-  );
 }

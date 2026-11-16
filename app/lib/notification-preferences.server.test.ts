@@ -52,13 +52,12 @@ describe("syncing a user", () => {
     });
   });
 
-  it("writes the default preferences for a user with none: Enrollments off, everything else on", async () => {
+  it("writes the default preferences for a user with none: every category on", async () => {
     await syncUser(notifications, person(base.user));
 
     expect(notifications.preferences.get(base.user.id)).toEqual({
       refundRequestUpdates: { feed: true },
       seatClaims: { feed: true },
-      enrollments: { feed: false },
       discussionQuestions: { feed: true },
       openRefundRequests: { feed: true },
       discussionReplies: { feed: true },
@@ -71,7 +70,7 @@ describe("syncing a user", () => {
     await syncUser(notifications, person(base.user));
 
     expect(notifications.preferences.get(base.user.id)).toMatchObject({
-      enrollments: { feed: false },
+      seatClaims: { feed: true },
       discussionReplies: { feed: true },
     });
   });
@@ -79,14 +78,14 @@ describe("syncing a user", () => {
   it("leaves an existing preference set alone", async () => {
     await notifications.mergePreferences(base.user.id, {
       discussionReplies: { feed: false },
-      enrollments: { feed: true },
+      seatClaims: { feed: false },
     });
 
     await syncUser(notifications, person(base.user));
 
     expect(notifications.preferences.get(base.user.id)).toEqual({
       discussionReplies: { feed: false },
-      enrollments: { feed: true },
+      seatClaims: { feed: false },
     });
   });
 
@@ -115,7 +114,7 @@ describe("syncing every user", () => {
       [base.user.id, base.instructor.id].sort()
     );
     expect(notifications.preferences.get(base.instructor.id)).toMatchObject({
-      enrollments: { feed: false },
+      seatClaims: { feed: true },
     });
   });
 });
@@ -124,7 +123,7 @@ describe("changing a feed preference", () => {
   it("merges the change into the existing set, leaving every other preference unchanged", async () => {
     await notifications.mergePreferences(base.user.id, {
       refundRequestUpdates: { feed: false },
-      enrollments: { feed: true },
+      seatClaims: { feed: true },
       discussionReplies: { feed: true },
     });
 
@@ -137,18 +136,17 @@ describe("changing a feed preference", () => {
 
     expect(notifications.preferences.get(base.user.id)).toEqual({
       refundRequestUpdates: { feed: false },
-      enrollments: { feed: true },
+      seatClaims: { feed: true },
       discussionReplies: { feed: false },
     });
   });
 
   it("starts from the defaults when the user has no set yet", async () => {
-    await setFeedPreference(notifications, base.user.id, "enrollments", true);
+    await setFeedPreference(notifications, base.user.id, "seatClaims", false);
 
     expect(notifications.preferences.get(base.user.id)).toEqual({
       refundRequestUpdates: { feed: true },
-      seatClaims: { feed: true },
-      enrollments: { feed: true },
+      seatClaims: { feed: false },
       discussionQuestions: { feed: true },
       openRefundRequests: { feed: true },
       discussionReplies: { feed: true },
@@ -158,12 +156,11 @@ describe("changing a feed preference", () => {
   it("starts from the defaults when the user's set is empty", async () => {
     await notifications.mergePreferences(base.user.id, {});
 
-    await setFeedPreference(notifications, base.user.id, "enrollments", true);
+    await setFeedPreference(notifications, base.user.id, "seatClaims", false);
 
     expect(notifications.preferences.get(base.user.id)).toEqual({
       refundRequestUpdates: { feed: true },
-      seatClaims: { feed: true },
-      enrollments: { feed: true },
+      seatClaims: { feed: false },
       discussionQuestions: { feed: true },
       openRefundRequests: { feed: true },
       discussionReplies: { feed: true },
@@ -178,7 +175,6 @@ describe("changing a feed preference", () => {
     expect(await getFeedPreferences(notifications, base.user.id)).toEqual({
       refundRequestUpdates: true,
       seatClaims: true,
-      enrollments: false,
       discussionQuestions: true,
       openRefundRequests: true,
       discussionReplies: false,
@@ -241,15 +237,14 @@ describe("which switches a person sees", () => {
     ]);
   });
 
-  it("adds Enrollments and Discussion Questions for someone who owns a course", () => {
+  it("adds Discussion Questions for someone who owns a course", () => {
     expect(visibleNotificationCategories(db, base.instructor.id)).toEqual([
-      "enrollments",
       "discussionQuestions",
       "discussionReplies",
     ]);
   });
 
-  it("hides Enrollments and Discussion Questions from an Instructor who owns no course", () => {
+  it("hides Discussion Questions from an Instructor who owns no course", () => {
     const instructor = addUser("Ines", schema.UserRole.Instructor);
 
     expect(visibleNotificationCategories(db, instructor.id)).toEqual([
@@ -265,7 +260,6 @@ describe("which switches a person sees", () => {
       .run();
 
     expect(visibleNotificationCategories(db, admin.id)).toEqual([
-      "enrollments",
       "discussionQuestions",
       "openRefundRequests",
       "discussionReplies",

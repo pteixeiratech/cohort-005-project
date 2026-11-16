@@ -394,20 +394,6 @@ export async function raiseRefundRequest(
     .returning()
     .get();
 
-  await sendSafely(
-    notifications,
-    {
-      kind: "refund-requested",
-      recipient: toNotificationPerson(buyer),
-      data: {
-        refundRequestId: refundRequest.id,
-        courseTitle: course.title,
-        amount: formatPrice(purchase.amountPaid),
-      },
-    },
-    `refund-requested:${refundRequest.id}`
-  );
-
   const platformAdmins = db
     .select()
     .from(users)
@@ -422,10 +408,8 @@ export async function raiseRefundRequest(
         actor: toNotificationPerson(buyer),
         data: {
           refundRequestId: refundRequest.id,
-          buyerName: buyer.name,
           courseTitle: course.title,
           amount: formatPrice(purchase.amountPaid),
-          reason,
           url: "/admin/refunds",
         },
       },

@@ -6,7 +6,6 @@
 export const NOTIFICATION_CATEGORIES = [
   "refundRequestUpdates",
   "seatClaims",
-  "enrollments",
   "discussionQuestions",
   "openRefundRequests",
   "discussionReplies",
@@ -29,11 +28,10 @@ export type NotificationPreferences = {
 /** Each category's feed switch, with defaults filled in. */
 export type FeedPreferences = Record<NotificationCategory, boolean>;
 
-/** What every user starts with: Enrollments off, everything else on. */
+/** What every user starts with: every category on. */
 export const DEFAULT_FEED_PREFERENCES: FeedPreferences = {
   refundRequestUpdates: true,
   seatClaims: true,
-  enrollments: false,
   discussionQuestions: true,
   openRefundRequests: true,
   discussionReplies: true,
@@ -50,10 +48,6 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<
   seatClaims: {
     label: "Claimed Seats",
     description: "When someone claims a Seat on your Team Licence.",
-  },
-  enrollments: {
-    label: "Enrollments",
-    description: "When a Student enrolls on one of your courses.",
   },
   discussionQuestions: {
     label: "Discussion Questions",

@@ -147,8 +147,7 @@ describe("claiming a Seat", () => {
       db,
       base.user.id,
       base.course.id,
-      NOW,
-      fakeNotifications()
+      NOW
     );
 
     expect(
@@ -190,8 +189,7 @@ describe("claiming a Seat", () => {
       db,
       base.user.id,
       base.course.id,
-      NOW,
-      fakeNotifications()
+      NOW
     );
 
     expect(
@@ -303,45 +301,6 @@ describe("the Seat claim Notification", () => {
       "Knock is down"
     );
     logged.mockRestore();
-  });
-});
-
-describe("the new Enrollment Notification from a Seat claim", () => {
-  it("tells the course's Instructor that the Student enrolled", async () => {
-    const { seats } = buySeats(1);
-
-    const result = await claimSeat(
-      db,
-      seats[0].code,
-      base.user.id,
-      "GB",
-      NOW,
-      notifications
-    );
-    if (!result.ok) throw new Error(result.error);
-
-    expect(sentOfKind("new-enrollment")).toEqual([
-      {
-        kind: "new-enrollment",
-        recipient: expect.objectContaining({ id: base.instructor.id }),
-        actor: expect.objectContaining({ id: base.user.id }),
-        data: {
-          enrollmentId: result.enrollment.id,
-          courseId: base.course.id,
-          courseTitle: base.course.title,
-          url: `/instructor/${base.course.id}/students`,
-        },
-        idempotencyKey: `enrollment:${result.enrollment.id}`,
-      },
-    ]);
-  });
-
-  it("is not sent when the claim is refused", async () => {
-    const { seats } = buySeats(1, "GB");
-
-    await claimSeat(db, seats[0].code, base.user.id, "IN", NOW, notifications);
-
-    expect(sentOfKind("new-enrollment")).toEqual([]);
   });
 });
 

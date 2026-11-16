@@ -33,17 +33,9 @@ const TEMPLATES: Record<NotificationKind, { name: string; body: string }> = {
     name: "Seat claimed",
     body: "**{{ actor.name }}** claimed a seat on {{ data.courseTitle }}. {{ data.seatsLeft }} left.",
   },
-  "new-enrollment": {
-    name: "New Enrollment",
-    body: "**{{ actor.name }}** enrolled in {{ data.courseTitle }}.",
-  },
-  "refund-requested": {
-    name: "Refund Request received",
-    body: "We are reviewing your {{ data.amount }} refund request for {{ data.courseTitle }}.",
-  },
   "refund-request-open": {
     name: "Open Refund Request",
-    body: "**{{ data.buyerName }}** asked for a {{ data.amount }} refund on {{ data.courseTitle }}.",
+    body: "A {{ data.amount }} Refund Request was raised on {{ data.courseTitle }}.",
   },
   "refund-approved": {
     name: "Refund approved",
