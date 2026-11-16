@@ -414,6 +414,13 @@ function describeNotification(notification: FeedNotification): {
         icon: <Receipt />,
         url: notification.data.url,
       };
+    case "refund-failed":
+      return {
+        title: `A refund for ${notification.data.courseTitle} failed to send`,
+        body: `${notification.data.amount} was not sent back. The refund stays approved.`,
+        icon: <Receipt />,
+        url: notification.data.url,
+      };
   }
 }
 

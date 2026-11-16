@@ -63,6 +63,13 @@ export const notificationDataSchemas = {
     amount: z.string(),
     url: z.string(),
   }),
+  // Platform Admins only. Like refund-request-open, no buyer name or reason.
+  "refund-failed": z.object({
+    refundRequestId: z.number(),
+    courseTitle: z.string(),
+    amount: z.string(),
+    url: z.string(),
+  }),
 };
 
 export type NotificationKind = keyof typeof notificationDataSchemas;

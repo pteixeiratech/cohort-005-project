@@ -17,6 +17,7 @@ import {
   listRefundRequestsForBuyer,
   listRefundRequestsForReview,
   listTeamLicences,
+  markRefundFailed,
   markRefundIssued,
   raiseRefundRequest,
 } from "./refunds.server";
@@ -838,6 +839,162 @@ describe("marking a Refund Issued", () => {
     notifications.sent.length = 0;
 
     await markRefundIssued(db, id, NOW, notifications);
+
+    const data = JSON.stringify(notifications.sent.map((n) => n.data));
+    expect(data).not.toContain("Test User");
+    expect(data).not.toContain(REASON);
+  });
+});
+
+describe("marking a Refund Failed", () => {
+  const REASON = "It was not what I expected.";
+
+  function sentOf(kind: string) {
+    return notifications.sent.filter((n) => n.kind === kind);
+  }
+
+  function outcomeOf(id: number) {
+    return db
+      .select()
+      .from(schema.refunds)
+      .where(eq(schema.refunds.id, id))
+      .get()?.refundOutcome;
+  }
+
+  function addAdmin(name: string) {
+    return db
+      .insert(schema.users)
+      .values({ name, email: `${name.toLowerCase().replace(" ", "-")}@example.com`, role: UserRole.Admin })
+      .returning()
+      .get();
+  }
+
+  async function approved(purchaseId: number, buyerId: number) {
+    const id = await raise(purchaseId, buyerId);
+    await approveRefundRequest(db, id, platformAdmin.id, null, NOW, notifications);
+    notifications.sent.length = 0;
+    return id;
+  }
+
+  it("tells every Platform Admin once each, and nobody else", async () => {
+    const sam = addAdmin("Sam Admin");
+    const purchase = buyForSelf(base.user.id, 3, 7900);
+    const id = await approved(purchase.id, base.user.id);
+
+    const result = await markRefundFailed(db, id, NOW, notifications);
+
+    expect(result).toEqual({ ok: true });
+    expect(outcomeOf(id)).toBe(RefundOutcome.Failed);
+    expect(notifications.sent.every((n) => n.kind === "refund-failed")).toBe(true);
+    expect(sentOf("refund-failed").map((n) => n.recipient.id).sort()).toEqual(
+      [platformAdmin.id, sam.id].sort()
+    );
+    expect(notifications.sent.find((n) => n.recipient.id === platformAdmin.id)).toEqual({
+      kind: "refund-failed",
+      idempotencyKey: `refund-failed:${id}:${NOW.toISOString()}:${platformAdmin.id}`,
+      recipient: {
+        id: platformAdmin.id,
+        name: "Pat Admin",
+        email: "pat@example.com",
+        avatarUrl: null,
+      },
+      data: {
+        refundRequestId: id,
+        courseTitle: "Test Course",
+        amount: "$79.00",
+        url: "/admin/refunds",
+      },
+    });
+  });
+
+  it("notifies the Platform Admins again when the same approved Refund fails a second time", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await approved(purchase.id, base.user.id);
+    await markRefundFailed(db, id, NOW, notifications);
+    const later = new Date(NOW.getTime() + 60_000);
+
+    const result = await markRefundFailed(db, id, later, notifications);
+
+    expect(result).toEqual({ ok: true });
+    expect(outcomeOf(id)).toBe(RefundOutcome.Failed);
+    const toAdmin = sentOf("refund-failed").filter(
+      (n) => n.recipient.id === platformAdmin.id
+    );
+    expect(toAdmin.map((n) => n.idempotencyKey)).toEqual([
+      `refund-failed:${id}:${NOW.toISOString()}:${platformAdmin.id}`,
+      `refund-failed:${id}:${later.toISOString()}:${platformAdmin.id}`,
+    ]);
+  });
+
+  it("returns ok and keeps the Failed outcome when the Notification cannot be sent", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const purchase = buyForSelf(base.user.id);
+    const id = await approved(purchase.id, base.user.id);
+    notifications.failWith(new Error("Knock is down"));
+
+    const result = await markRefundFailed(db, id, NOW, notifications);
+
+    expect(result).toEqual({ ok: true });
+    expect(outcomeOf(id)).toBe(RefundOutcome.Failed);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining(`refund-failed:${id}`),
+      "Knock is down"
+    );
+    error.mockRestore();
+  });
+
+  it("refuses a Refund Request that is still open, and sends nothing", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await raise(purchase.id, base.user.id);
+    notifications.sent.length = 0;
+
+    const result = await markRefundFailed(db, id, NOW, notifications);
+
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(outcomeOf(id)).toBeNull();
+    expect(notifications.sent).toEqual([]);
+  });
+
+  it("refuses a Refund Request that was declined, and sends nothing", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await raise(purchase.id, base.user.id);
+    await declineRefundRequest(db, id, platformAdmin.id, "No.", NOW, notifications);
+    notifications.sent.length = 0;
+
+    const result = await markRefundFailed(db, id, NOW, notifications);
+
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(outcomeOf(id)).toBeNull();
+    expect(notifications.sent).toEqual([]);
+  });
+
+  it("refuses a Refund that was already Issued, and sends nothing", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await approved(purchase.id, base.user.id);
+    await markRefundIssued(db, id, NOW, notifications);
+    notifications.sent.length = 0;
+
+    const result = await markRefundFailed(db, id, NOW, notifications);
+
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(outcomeOf(id)).toBe(RefundOutcome.Issued);
+    expect(notifications.sent).toEqual([]);
+  });
+
+  it("returns 404 for a Refund Request that does not exist", async () => {
+    const result = await markRefundFailed(db, 9999, NOW, notifications);
+
+    expect(result).toMatchObject({ ok: false, status: 404 });
+    expect(notifications.sent).toEqual([]);
+  });
+
+  it("never puts the buyer's name or the reason text in the Notification", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await raise(purchase.id, base.user.id);
+    await approveRefundRequest(db, id, platformAdmin.id, null, NOW, notifications);
+    notifications.sent.length = 0;
+
+    await markRefundFailed(db, id, NOW, notifications);
 
     const data = JSON.stringify(notifications.sent.map((n) => n.data));
     expect(data).not.toContain("Test User");

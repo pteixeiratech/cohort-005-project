@@ -982,3 +982,108 @@ async function notifyIssued(
     `refund-issued:${refundRequestId}`
   );
 }
+
+// ─── Marking a Refund Failed ───
+
+/**
+ * Records that sending an approved Refund's money back failed. The Refund
+ * Request stays approved, so it can be retried; a retry that fails again is
+ * recorded and notified again. Once a Refund is Issued it cannot fail. Nothing
+ * calls this yet. A failed Notification never fails this, or undoes the outcome.
+ */
+export async function markRefundFailed(
+  db: Db,
+  refundRequestId: number,
+  now: Date,
+  notifications: Notifications
+): Promise<{ ok: true } | Failure> {
+  const result = db.transaction((tx): { ok: true } | Failure => {
+    const refundRequest = tx
+      .select()
+      .from(refunds)
+      .where(eq(refunds.id, refundRequestId))
+      .get();
+
+    if (!refundRequest) {
+      return { ok: false, status: 404, error: "Refund request not found." };
+    }
+
+    if (refundRequest.status !== RefundStatus.Approved) {
+      return {
+        ok: false,
+        status: 409,
+        error: `Only an approved refund request can fail, and this one was ${refundRequest.status}.`,
+      };
+    }
+
+    if (
+      refundRequest.refundOutcome !== null &&
+      refundRequest.refundOutcome !== RefundOutcome.Failed
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        error: `This refund was already ${refundRequest.refundOutcome}.`,
+      };
+    }
+
+    tx.update(refunds)
+      .set({ refundOutcome: RefundOutcome.Failed })
+      .where(eq(refunds.id, refundRequestId))
+      .run();
+
+    return { ok: true };
+  });
+
+  if (result.ok) await notifyFailed(db, refundRequestId, now, notifications);
+  return result;
+}
+
+/**
+ * Tells every Platform Admin that a Refund failed to send. The key includes
+ * the time of this failure and the admin, so a repeat failure is not dropped.
+ */
+async function notifyFailed(
+  db: Db,
+  refundRequestId: number,
+  now: Date,
+  notifications: Notifications
+) {
+  const refundRequest = db
+    .select()
+    .from(refunds)
+    .where(eq(refunds.id, refundRequestId))
+    .get();
+  if (!refundRequest) return;
+
+  const purchase = getPurchase(db, refundRequest.purchaseId);
+  if (!purchase) return;
+  const course = db
+    .select()
+    .from(courses)
+    .where(eq(courses.id, purchase.courseId))
+    .get();
+  if (!course) return;
+
+  const platformAdmins = db
+    .select()
+    .from(users)
+    .where(eq(users.role, UserRole.Admin))
+    .all();
+  for (const platformAdmin of platformAdmins) {
+    await sendSafely(
+      notifications,
+      {
+        kind: "refund-failed",
+        recipient: toNotificationPerson(platformAdmin),
+        data: {
+          refundRequestId,
+          courseTitle: course.title,
+          amount: formatPrice(purchase.amountPaid),
+          url: "/admin/refunds",
+        },
+      },
+      `refund-failed:${refundRequestId}:${now.toISOString()}:${platformAdmin.id}`
+    );
+  }
+}
