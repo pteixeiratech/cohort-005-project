@@ -45,6 +45,14 @@ const TEMPLATES: Record<NotificationKind, { name: string; body: string }> = {
     name: "Refund declined",
     body: "Your refund for {{ data.courseTitle }} was declined.",
   },
+  "refund-issued": {
+    name: "Refund issued",
+    body: "Your refund for {{ data.courseTitle }} was issued.",
+  },
+  "refund-failed": {
+    name: "Refund failed",
+    body: "The refund for {{ data.courseTitle }} failed to send.",
+  },
 };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Route } from "./+types/admin.refunds";
 import { getCurrentUserId } from "~/lib/session";
 import { parseFormData } from "~/lib/validation";
-import { RefundStatus, UserRole, users } from "~/db/schema";
+import { RefundOutcome, RefundStatus, UserRole, users } from "~/db/schema";
 import { db } from "~/db";
 import { eq } from "drizzle-orm";
 import { Card, CardContent } from "~/components/ui/card";
@@ -18,15 +18,26 @@ import {
   approveRefundRequest,
   declineRefundRequest,
   listRefundRequestsForReview,
+  markRefundFailed,
+  markRefundIssued,
   type RefundRequestForReview,
 } from "~/lib/refunds.server";
 import { RULE_BREAK_LABELS } from "~/lib/refund-rules";
-import { sendEmail } from "~/lib/mailer.server";
+import { notificationEmailConfig, sendEmail } from "~/lib/mailer.server";
 import { defaultNotifications } from "~/lib/notifications.server";
 
 const refundFilterSchema = z
   .nativeEnum(RefundStatus)
   .catch(RefundStatus.Open);
+
+// The Refund Request a Failed email links to, so the page can point at it.
+// Anything that is not a Refund Request id is ignored.
+const highlightedRefundSchema = z.coerce
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .catch(undefined);
 
 const adminRefundActionSchema = z.discriminatedUnion("intent", [
   z.object({
@@ -46,6 +57,14 @@ const adminRefundActionSchema = z.discriminatedUnion("intent", [
       .trim()
       .min(1, "Write the buyer a note saying why it was declined.")
       .max(1000, "Please keep the note under 1000 characters."),
+  }),
+  z.object({
+    intent: z.literal("issued"),
+    refundRequestId: z.coerce.number().int(),
+  }),
+  z.object({
+    intent: z.literal("failed"),
+    refundRequestId: z.coerce.number().int(),
   }),
 ]);
 
@@ -85,10 +104,56 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   await requirePlatformAdmin(request);
 
   const status = refundFilterSchema.parse(url.searchParams.get("status"));
+  const highlightedRefundId = highlightedRefundSchema.parse(
+    url.searchParams.get("refund")
+  );
 
   return {
     status,
+    highlightedRefundId,
     refundRequests: listRefundRequestsForReview(db, status, new Date()),
+  };
+}
+
+/**
+ * Records what happened to an approved Refund's money, and sends the emails
+ * that outcome calls for. The Notification email settings are read before
+ * anything is recorded, so a missing setting changes nothing.
+ */
+async function recordRefundOutcome(
+  intent: "issued" | "failed",
+  refundRequestId: number,
+  platformAdminId: number
+) {
+  const emailConfig = notificationEmailConfig(process.env);
+  const notifications = await defaultNotifications();
+
+  const result =
+    intent === "issued"
+      ? await markRefundIssued(db, refundRequestId, notifications, emailConfig)
+      : await markRefundFailed(
+          db,
+          refundRequestId,
+          platformAdminId,
+          new Date(),
+          notifications,
+          emailConfig
+        );
+
+  if (!result.ok) {
+    return data({ error: result.error }, { status: result.status });
+  }
+
+  for (const email of result.emails) {
+    await sendEmail(email);
+  }
+
+  return {
+    success: true,
+    message:
+      intent === "issued"
+        ? "Refund marked as issued."
+        : "Refund marked as failed.",
   };
 }
 
@@ -105,7 +170,17 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  const { intent, refundRequestId, note } = parsed.data;
+  const input = parsed.data;
+
+  if (input.intent === "issued" || input.intent === "failed") {
+    return recordRefundOutcome(
+      input.intent,
+      input.refundRequestId,
+      platformAdmin.id
+    );
+  }
+
+  const { intent, refundRequestId, note } = input;
 
   const result =
     intent === "approve"
@@ -148,7 +223,7 @@ const FILTERS: { status: RefundStatus; label: string }[] = [
 ];
 
 export default function AdminRefunds({ loaderData }: Route.ComponentProps) {
-  const { status, refundRequests } = loaderData;
+  const { status, refundRequests, highlightedRefundId } = loaderData;
   const [, setSearchParams] = useSearchParams();
 
   return (
@@ -202,6 +277,7 @@ export default function AdminRefunds({ loaderData }: Route.ComponentProps) {
             <RefundRequestCard
               key={refundRequest.id}
               refundRequest={refundRequest}
+              highlighted={refundRequest.id === highlightedRefundId}
             />
           ))}
         </div>
@@ -262,10 +338,17 @@ function Figures({
   );
 }
 
+const OUTCOME_LABELS: Record<RefundOutcome, string> = {
+  [RefundOutcome.Issued]: "Issued, money sent back",
+  [RefundOutcome.Failed]: "Failed to send",
+};
+
 function RefundRequestCard({
   refundRequest,
+  highlighted,
 }: {
   refundRequest: RefundRequestForReview;
+  highlighted: boolean;
 }) {
   const fetcher = useFetcher<
     { success: true; message: string } | { error: string }
@@ -273,6 +356,8 @@ function RefundRequestCard({
   const [note, setNote] = useState("");
   const isSubmitting = fetcher.state !== "idle";
   const isOpen = refundRequest.status === RefundStatus.Open;
+  const isApproved = refundRequest.status === RefundStatus.Approved;
+  const isIssued = refundRequest.refundOutcome === RefundOutcome.Issued;
 
   useEffect(() => {
     if (fetcher.state !== "idle" || !fetcher.data) return;
@@ -283,6 +368,13 @@ function RefundRequestCard({
     }
   }, [fetcher.state, fetcher.data]);
 
+  useEffect(() => {
+    if (!highlighted) return;
+    document
+      .getElementById(`refund-${refundRequest.id}`)
+      ?.scrollIntoView({ block: "center" });
+  }, [highlighted, refundRequest.id]);
+
   function decide(intent: "approve" | "decline") {
     fetcher.submit(
       { intent, refundRequestId: String(refundRequest.id), note },
@@ -290,8 +382,18 @@ function RefundRequestCard({
     );
   }
 
+  function recordOutcome(intent: "issued" | "failed") {
+    fetcher.submit(
+      { intent, refundRequestId: String(refundRequest.id) },
+      { method: "post" }
+    );
+  }
+
   return (
-    <Card>
+    <Card
+      id={`refund-${refundRequest.id}`}
+      className={highlighted ? "ring-2 ring-primary" : undefined}
+    >
       <CardContent className="space-y-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -372,6 +474,32 @@ function RefundRequestCard({
               <p className="mt-2 rounded-md bg-muted p-2 text-foreground">
                 {refundRequest.decisionNote}
               </p>
+            )}
+            {isApproved && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span>
+                  Money:{" "}
+                  {refundRequest.refundOutcome
+                    ? OUTCOME_LABELS[refundRequest.refundOutcome]
+                    : "not recorded yet"}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => recordOutcome("issued")}
+                  disabled={isSubmitting || isIssued}
+                >
+                  Mark as issued
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => recordOutcome("failed")}
+                  disabled={isSubmitting || isIssued}
+                >
+                  Mark as failed
+                </Button>
+              </div>
             )}
           </div>
         )}

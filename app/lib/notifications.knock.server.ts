@@ -51,6 +51,18 @@ const WORKFLOWS: Record<
     key: "refund-declined",
     category: "refundRequestUpdates",
   },
+  // There is no separate refunds category: Issued shares the Refund Request
+  // updates switch.
+  "refund-issued": {
+    key: "refund-issued",
+    category: "refundRequestUpdates",
+  },
+  // Platform Admin Notifications for refunds share the open-request switch:
+  // there is no failure category, and the recipients are the same admins.
+  "refund-failed": {
+    key: "refund-failed",
+    category: "openRefundRequests",
+  },
 };
 
 /** Knock preference category key per Cadence Notification category. */
