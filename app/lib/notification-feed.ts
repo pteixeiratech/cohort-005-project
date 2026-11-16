@@ -56,6 +56,13 @@ export const notificationDataSchemas = {
     decisionNote: z.string(),
     url: z.string(),
   }),
+  "refund-issued": z.object({
+    refundRequestId: z.number(),
+    courseTitle: z.string(),
+    purchaseKind: z.enum(["individual_purchase", "team_licence"]),
+    amount: z.string(),
+    url: z.string(),
+  }),
 };
 
 export type NotificationKind = keyof typeof notificationDataSchemas;

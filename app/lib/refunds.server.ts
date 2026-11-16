@@ -14,6 +14,7 @@ import {
   users,
   videoWatchEvents,
   LessonProgressStatus,
+  RefundOutcome,
   RefundStatus,
   UserRole,
 } from "~/db/schema";
@@ -887,4 +888,97 @@ async function notifyDecision(
       `refund-declined:${refundRequestId}`
     );
   }
+}
+
+// ─── Marking a Refund Issued ───
+
+/**
+ * Records that an approved Refund's money has been sent back, and tells the
+ * buyer. Nothing calls this yet: the Refund is marked Issued by a route not
+ * built here. A failed Notification never fails this, or undoes the outcome.
+ */
+export async function markRefundIssued(
+  db: Db,
+  refundRequestId: number,
+  now: Date,
+  notifications: Notifications
+): Promise<{ ok: true } | Failure> {
+  const result = db.transaction((tx): { ok: true } | Failure => {
+    const refundRequest = tx
+      .select()
+      .from(refunds)
+      .where(eq(refunds.id, refundRequestId))
+      .get();
+
+    if (!refundRequest) {
+      return { ok: false, status: 404, error: "Refund request not found." };
+    }
+
+    if (refundRequest.status !== RefundStatus.Approved) {
+      return {
+        ok: false,
+        status: 409,
+        error: `Only an approved refund request can be issued, and this one was ${refundRequest.status}.`,
+      };
+    }
+
+    if (refundRequest.refundOutcome !== null) {
+      return {
+        ok: false,
+        status: 409,
+        error: `This refund was already ${refundRequest.refundOutcome}.`,
+      };
+    }
+
+    tx.update(refunds)
+      .set({ refundOutcome: RefundOutcome.Issued })
+      .where(eq(refunds.id, refundRequestId))
+      .run();
+
+    return { ok: true };
+  });
+
+  if (result.ok) await notifyIssued(db, refundRequestId, notifications);
+  return result;
+}
+
+/** Tells the buyer their Refund was Issued. Reads it back after commit. */
+async function notifyIssued(
+  db: Db,
+  refundRequestId: number,
+  notifications: Notifications
+) {
+  const refundRequest = db
+    .select()
+    .from(refunds)
+    .where(eq(refunds.id, refundRequestId))
+    .get();
+  if (!refundRequest) return;
+
+  const purchase = getPurchase(db, refundRequest.purchaseId);
+  if (!purchase) return;
+  const buyer = db.select().from(users).where(eq(users.id, purchase.userId)).get();
+  const course = db
+    .select()
+    .from(courses)
+    .where(eq(courses.id, purchase.courseId))
+    .get();
+  if (!buyer || !course) return;
+
+  const purchaseKind = kindOf(getSeats(db, purchase.id));
+  await sendSafely(
+    notifications,
+    {
+      kind: "refund-issued",
+      recipient: toNotificationPerson(buyer),
+      data: {
+        refundRequestId,
+        courseTitle: course.title,
+        purchaseKind,
+        amount: formatPrice(purchase.amountPaid),
+        url: purchaseKind === "team_licence" ? "/team" : "/settings",
+      },
+    },
+    `refund-issued:${refundRequestId}`
+  );
 }

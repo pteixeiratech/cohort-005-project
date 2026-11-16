@@ -17,6 +17,7 @@ import {
   listRefundRequestsForBuyer,
   listRefundRequestsForReview,
   listTeamLicences,
+  markRefundIssued,
   raiseRefundRequest,
 } from "./refunds.server";
 import {
@@ -704,5 +705,142 @@ describe("the Refund Request Notifications", () => {
     await declineRefundRequest(db, id, platformAdmin.id, "Too late.", NOW, notifications);
 
     expect(notifications.sent).toEqual([]);
+  });
+});
+
+describe("marking a Refund Issued", () => {
+  const REASON = "It was not what I expected.";
+
+  function sentOf(kind: string) {
+    return notifications.sent.filter((n) => n.kind === kind);
+  }
+
+  function outcomeOf(id: number) {
+    return db
+      .select()
+      .from(schema.refunds)
+      .where(eq(schema.refunds.id, id))
+      .get()?.refundOutcome;
+  }
+
+  async function approved(purchaseId: number, buyerId: number) {
+    const id = await raise(purchaseId, buyerId);
+    await approveRefundRequest(db, id, platformAdmin.id, null, NOW, notifications);
+    notifications.sent.length = 0;
+    return id;
+  }
+
+  it("tells the Student their Individual Purchase Refund was Issued, and nothing else", async () => {
+    const purchase = buyForSelf(base.user.id, 3, 7900);
+    const id = await approved(purchase.id, base.user.id);
+
+    const result = await markRefundIssued(db, id, NOW, notifications);
+
+    expect(result).toEqual({ ok: true });
+    expect(outcomeOf(id)).toBe(RefundOutcome.Issued);
+    expect(notifications.sent).toEqual([
+      {
+        kind: "refund-issued",
+        idempotencyKey: `refund-issued:${id}`,
+        recipient: {
+          id: base.user.id,
+          name: "Test User",
+          email: "test@example.com",
+          avatarUrl: null,
+        },
+        data: {
+          refundRequestId: id,
+          courseTitle: "Test Course",
+          purchaseKind: "individual_purchase",
+          amount: "$79.00",
+          url: "/settings",
+        },
+      },
+    ]);
+  });
+
+  it("tells the Team Admin their Team Licence Refund was Issued, linking to the team page", async () => {
+    const priya = addStudent("Priya");
+    const { purchase } = buySeats(priya.id, 2);
+    const id = await approved(purchase.id, priya.id);
+
+    await markRefundIssued(db, id, NOW, notifications);
+
+    expect(notifications.sent).toMatchObject([
+      {
+        kind: "refund-issued",
+        idempotencyKey: `refund-issued:${id}`,
+        recipient: { id: priya.id },
+        data: {
+          refundRequestId: id,
+          courseTitle: "Test Course",
+          purchaseKind: "team_licence",
+          amount: "$158.00",
+          url: "/team",
+        },
+      },
+    ]);
+  });
+
+  it("stays Issued, and returns ok, when the Notification cannot be sent", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const purchase = buyForSelf(base.user.id);
+    const id = await approved(purchase.id, base.user.id);
+    notifications.failWith(new Error("Knock is down"));
+
+    const result = await markRefundIssued(db, id, NOW, notifications);
+
+    expect(result).toEqual({ ok: true });
+    expect(outcomeOf(id)).toBe(RefundOutcome.Issued);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining(`refund-issued:${id}`),
+      "Knock is down"
+    );
+    error.mockRestore();
+  });
+
+  it("refuses a Refund Request that is not approved, and sends nothing", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await raise(purchase.id, base.user.id);
+    notifications.sent.length = 0;
+
+    const result = await markRefundIssued(db, id, NOW, notifications);
+
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(outcomeOf(id)).toBeNull();
+    expect(notifications.sent).toEqual([]);
+  });
+
+  it("refuses a Refund that already has an outcome, and sends nothing", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await approved(purchase.id, base.user.id);
+    await markRefundIssued(db, id, NOW, notifications);
+    notifications.sent.length = 0;
+
+    const result = await markRefundIssued(db, id, NOW, notifications);
+
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(outcomeOf(id)).toBe(RefundOutcome.Issued);
+    expect(notifications.sent).toEqual([]);
+  });
+
+  it("returns 404 for a Refund Request that does not exist", async () => {
+    const result = await markRefundIssued(db, 9999, NOW, notifications);
+
+    expect(result).toMatchObject({ ok: false, status: 404 });
+    expect(notifications.sent).toEqual([]);
+  });
+
+  it("never puts the buyer's name or the reason text in the Notification", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await raise(purchase.id, base.user.id);
+    await approveRefundRequest(db, id, platformAdmin.id, null, NOW, notifications);
+    notifications.sent.length = 0;
+
+    await markRefundIssued(db, id, NOW, notifications);
+
+    const data = JSON.stringify(notifications.sent.map((n) => n.data));
+    expect(data).not.toContain("Test User");
+    expect(data).not.toContain(REASON);
   });
 });
