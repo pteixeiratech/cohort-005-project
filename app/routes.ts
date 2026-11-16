@@ -47,6 +47,7 @@ export default [
     route("settings", "routes/settings.tsx"),
     route("team", "routes/team.tsx"),
     route("redeem/:code", "routes/redeem.$code.tsx"),
+    route("prototype/notification-feed", "routes/prototype.notification-feed.tsx"), // PROTOTYPE, ticket #20
   ]),
   route("signup", "routes/signup.tsx"),
   route("login", "routes/login.tsx"),

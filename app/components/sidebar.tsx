@@ -18,6 +18,7 @@ import {
   Sun,
   LogOut,
   Settings,
+  Bell,
 } from "lucide-react";
 
 interface CurrentUser {
@@ -51,6 +52,13 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  // PROTOTYPE (wayfinder #20): temporary link to the Notification Feed board. Remove with the prototype.
+  {
+    label: "Notifications (prototype)",
+    to: "/prototype/notification-feed",
+    icon: <Bell className="size-4" />,
+    roles: "all",
+  },
   {
     label: "Browse Courses",
     to: "/courses",
