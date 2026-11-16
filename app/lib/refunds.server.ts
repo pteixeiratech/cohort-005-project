@@ -894,13 +894,14 @@ async function notifyDecision(
 
 /**
  * Records that an approved Refund's money has been sent back, and tells the
- * buyer. Nothing calls this yet: the Refund is marked Issued by a route not
- * built here. A failed Notification never fails this, or undoes the outcome.
+ * buyer. A Refund that Failed earlier can be Issued on a retry; a Refund that
+ * is already Issued cannot. Nothing calls this yet: the Refund is marked Issued
+ * by a route not built here. A failed Notification never fails this, or undoes
+ * the outcome.
  */
 export async function markRefundIssued(
   db: Db,
   refundRequestId: number,
-  now: Date,
   notifications: Notifications
 ): Promise<{ ok: true } | Failure> {
   const result = db.transaction((tx): { ok: true } | Failure => {
@@ -922,7 +923,10 @@ export async function markRefundIssued(
       };
     }
 
-    if (refundRequest.refundOutcome !== null) {
+    if (
+      refundRequest.refundOutcome !== null &&
+      refundRequest.refundOutcome !== RefundOutcome.Failed
+    ) {
       return {
         ok: false,
         status: 409,

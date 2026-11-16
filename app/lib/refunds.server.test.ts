@@ -735,7 +735,7 @@ describe("marking a Refund Issued", () => {
     const purchase = buyForSelf(base.user.id, 3, 7900);
     const id = await approved(purchase.id, base.user.id);
 
-    const result = await markRefundIssued(db, id, NOW, notifications);
+    const result = await markRefundIssued(db, id, notifications);
 
     expect(result).toEqual({ ok: true });
     expect(outcomeOf(id)).toBe(RefundOutcome.Issued);
@@ -765,7 +765,7 @@ describe("marking a Refund Issued", () => {
     const { purchase } = buySeats(priya.id, 2);
     const id = await approved(purchase.id, priya.id);
 
-    await markRefundIssued(db, id, NOW, notifications);
+    await markRefundIssued(db, id, notifications);
 
     expect(notifications.sent).toMatchObject([
       {
@@ -789,7 +789,7 @@ describe("marking a Refund Issued", () => {
     const id = await approved(purchase.id, base.user.id);
     notifications.failWith(new Error("Knock is down"));
 
-    const result = await markRefundIssued(db, id, NOW, notifications);
+    const result = await markRefundIssued(db, id, notifications);
 
     expect(result).toEqual({ ok: true });
     expect(outcomeOf(id)).toBe(RefundOutcome.Issued);
@@ -805,7 +805,7 @@ describe("marking a Refund Issued", () => {
     const id = await raise(purchase.id, base.user.id);
     notifications.sent.length = 0;
 
-    const result = await markRefundIssued(db, id, NOW, notifications);
+    const result = await markRefundIssued(db, id, notifications);
 
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(outcomeOf(id)).toBeNull();
@@ -815,18 +815,34 @@ describe("marking a Refund Issued", () => {
   it("refuses a Refund that already has an outcome, and sends nothing", async () => {
     const purchase = buyForSelf(base.user.id);
     const id = await approved(purchase.id, base.user.id);
-    await markRefundIssued(db, id, NOW, notifications);
+    await markRefundIssued(db, id, notifications);
     notifications.sent.length = 0;
 
-    const result = await markRefundIssued(db, id, NOW, notifications);
+    const result = await markRefundIssued(db, id, notifications);
 
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(outcomeOf(id)).toBe(RefundOutcome.Issued);
     expect(notifications.sent).toEqual([]);
   });
 
+  it("issues a Refund that failed earlier and succeeds on retry, telling the buyer once", async () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = await approved(purchase.id, base.user.id);
+    await markRefundFailed(db, id, NOW, notifications);
+    notifications.sent.length = 0;
+
+    const result = await markRefundIssued(db, id, notifications);
+
+    expect(result).toEqual({ ok: true });
+    expect(outcomeOf(id)).toBe(RefundOutcome.Issued);
+    expect(notifications.sent).toHaveLength(1);
+    expect(sentOf("refund-issued")).toMatchObject([
+      { idempotencyKey: `refund-issued:${id}`, recipient: { id: base.user.id } },
+    ]);
+  });
+
   it("returns 404 for a Refund Request that does not exist", async () => {
-    const result = await markRefundIssued(db, 9999, NOW, notifications);
+    const result = await markRefundIssued(db, 9999, notifications);
 
     expect(result).toMatchObject({ ok: false, status: 404 });
     expect(notifications.sent).toEqual([]);
@@ -838,7 +854,7 @@ describe("marking a Refund Issued", () => {
     await approveRefundRequest(db, id, platformAdmin.id, null, NOW, notifications);
     notifications.sent.length = 0;
 
-    await markRefundIssued(db, id, NOW, notifications);
+    await markRefundIssued(db, id, notifications);
 
     const data = JSON.stringify(notifications.sent.map((n) => n.data));
     expect(data).not.toContain("Test User");
@@ -971,7 +987,7 @@ describe("marking a Refund Failed", () => {
   it("refuses a Refund that was already Issued, and sends nothing", async () => {
     const purchase = buyForSelf(base.user.id);
     const id = await approved(purchase.id, base.user.id);
-    await markRefundIssued(db, id, NOW, notifications);
+    await markRefundIssued(db, id, notifications);
     notifications.sent.length = 0;
 
     const result = await markRefundFailed(db, id, NOW, notifications);
