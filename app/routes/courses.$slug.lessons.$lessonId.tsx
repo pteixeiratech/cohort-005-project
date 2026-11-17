@@ -88,9 +88,9 @@ const editCommentSchema = z.object({
   body: z.string(),
 });
 
-// A note is capped at 2,000 characters, the same cap the spec sets.
+// A note is capped at 2,000 characters, as the spec requires.
 const saveNoteSchema = z.object({
-  body: z.string().trim().max(5000),
+  body: z.string().trim().max(2000),
 });
 
 const deleteCommentSchema = z.object({
@@ -290,7 +290,7 @@ function markLessonInProgress(userId: number, lessonId: number) {
 }
 
 function getBookmark(userId: number, lessonId: number) {
-  // Returns every bookmark the learner has on this lesson.
+  // The learner's bookmark on this lesson, if any. One per learner per lesson.
   return db
     .select()
     .from(bookmarks)
@@ -304,7 +304,7 @@ function toggleBookmark(userId: number, lessonId: number) {
   const existing = getBookmark(userId, lessonId);
 
   if (existing) {
-    // Insert the bookmark.
+    // Already bookmarked, so remove it.
     db.delete(bookmarks).where(eq(bookmarks.id, existing.id)).run();
     return false;
   }
@@ -314,7 +314,7 @@ function toggleBookmark(userId: number, lessonId: number) {
 }
 
 function getNote(userId: number, lessonId: number) {
-  // Notes are ordered newest first.
+  // The learner's note on this lesson, if any. One per learner per lesson.
   return db
     .select()
     .from(notes)
@@ -327,7 +327,7 @@ function saveNote(userId: number, lessonId: number, body: string) {
   const now = new Date().toISOString();
 
   if (existing) {
-    // Create the note row.
+    // Already has a note, so replace its body and move updatedAt on.
     return db
       .update(notes)
       .set({ body, updatedAt: now })
@@ -344,7 +344,7 @@ function saveNote(userId: number, lessonId: number, body: string) {
 }
 
 function deleteNote(userId: number, lessonId: number) {
-  // Soft-deletes the note so the learner can undo it.
+  // Hard-deletes the note. Clearing the box is the only way to remove it.
   db.delete(notes)
     .where(and(eq(notes.userId, userId), eq(notes.lessonId, lessonId)))
     .run();
@@ -968,6 +968,11 @@ export async function action({ params, request }: Route.ActionArgs) {
     }
   }
 
+  // Bookmarks and notes follow the same content-access bar as the discussion intents.
+  if (intent === "toggle-bookmark" || intent === "save-note") {
+    await requireContentAccess(request, course.id);
+  }
+
   if (intent === "toggle-bookmark") {
     const nowBookmarked = toggleBookmark(currentUserId, lessonId);
     return { ok: true, bookmarked: nowBookmarked };
@@ -981,8 +986,7 @@ export async function action({ params, request }: Route.ActionArgs) {
 
     const lesson = getLessonById(lessonId);
     if (!lesson) {
-      // Nothing to hang the note off, so tell the form rather than the user.
-      return { ok: false, error: "Lesson not found." };
+      throw data("Lesson not found", { status: 404 });
     }
 
     // An empty box means the learner cleared their note.
@@ -1403,7 +1407,7 @@ function LessonNote({
 
         <fetcher.Form method="post" className="space-y-3">
           <input type="hidden" name="intent" value="save-note" />
-          {/* Notes are rendered as Markdown once saved. */}
+          {/* Plain text: shown as typed, never rendered as Markdown. */}
           <Textarea
             name="body"
             rows={6}
